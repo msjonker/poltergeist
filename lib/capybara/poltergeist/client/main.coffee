@@ -98,4 +98,4 @@ for arg in system.args.slice(1)
   else
     args.push(arg)
 
-new Poltergeist(args[0], args[1], args[2])
+window.poltergeist = new Poltergeist(args[0], args[1], args[2])
