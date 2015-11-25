@@ -2,8 +2,8 @@
   <head>
     <meta http-equiv="Content-type" content="text/html; charset=utf-8"/>
     <title>poltergeist with_js</title>
-    <script src="/poltergeist/jquery-1.6.2.min.js" type="text/javascript" charset="utf-8"></script>
-    <script src="/poltergeist/jquery-ui-1.8.14.min.js" type="text/javascript" charset="utf-8"></script>
+    <script src="/poltergeist/jquery.min.js" type="text/javascript" charset="utf-8"></script>
+    <script src="/poltergeist/jquery-ui.min.js" type="text/javascript" charset="utf-8"></script>
     <script src="/poltergeist/test.js" type="text/javascript" charset="utf-8"></script>
 
     <style type="text/css">
@@ -56,10 +56,16 @@
 
     <select id="browser">
       <option value="PhantomJS" selected="selected">PhantomJS</option>
-      <option value="Chrome">Chrome</option>
       <option value="Firefox">Firefox</option>
-      <option value="Safari">Safari</option>
+      <optgroup label="Wekbit">
+        <option value="Chrome">Chrome</option>
+        <option value="Safari">Safari</option>
+      </optgroup>
       <option value="IE">IE</option>
     </select>
+
+    <p>
+      <a href="#" id="open-twice">Open check twice</a>
+    </p>
   </body>
 </html>

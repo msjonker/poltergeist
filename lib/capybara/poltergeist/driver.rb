@@ -4,7 +4,7 @@ module Capybara::Poltergeist
   class Driver < Capybara::Driver::Base
     DEFAULT_TIMEOUT = 30
 
-    attr_reader :app, :server, :client, :browser, :options
+    attr_reader :app, :options
 
     def initialize(app, options = {})
       @app       = app
@@ -201,6 +201,18 @@ module Capybara::Poltergeist
     end
     alias_method :resize_window, :resize
 
+    def resize_window_to(handle, width, height)
+      within_window(handle) do
+        resize(width, height)
+      end
+    end
+
+    def window_size(handle)
+      within_window(handle) do
+        evaluate_script('[window.innerWidth, window.innerHeight]')
+      end
+    end
+
     def scroll_to(left, top)
       browser.scroll_to(left, top)
     end
@@ -245,7 +257,7 @@ module Capybara::Poltergeist
         if @started
           URI.parse(browser.current_url).host
         else
-          Capybara.app_host || "127.0.0.1"
+          URI.parse(Capybara.app_host || '').host || "127.0.0.1"
         end
       end
 
@@ -277,7 +289,10 @@ module Capybara::Poltergeist
 
     def debug
       if @options[:inspector]
-        inspector.open
+        # Fall back to default scheme
+        scheme = URI.parse(browser.current_url).scheme rescue nil
+        scheme = 'http' if scheme != 'https'
+        inspector.open(scheme)
         pause
       else
         raise Error, "To use the remote debugging, you have to launch the driver " \
@@ -286,8 +301,29 @@ module Capybara::Poltergeist
     end
 
     def pause
-      STDERR.puts "Poltergeist execution paused. Press enter to continue."
-      STDIN.gets
+      # STDIN is not necessarily connected to a keyboard. It might even be closed.
+      # So we need a method other than keypress to continue.
+
+      # In jRuby - STDIN returns immediately from select
+      # see https://github.com/jruby/jruby/issues/1783
+      read, write = IO.pipe
+      Thread.new { IO.copy_stream(STDIN, write); write.close }
+
+      STDERR.puts "Poltergeist execution paused. Press enter (or run 'kill -CONT #{Process.pid}') to continue."
+
+      signal = false
+      old_trap = trap('SIGCONT') { signal = true; STDERR.puts "\nSignal SIGCONT received" }
+      keyboard = IO.select([read], nil, nil, 1) until keyboard || signal # wait for data on STDIN or signal SIGCONT received
+
+      begin
+        input = read.read_nonblock(80) # clear out the read buffer
+        puts unless input && input =~ /\n\z/
+      rescue EOFError, IO::WaitReadable # Ignore problems reading from STDIN.
+      end unless signal
+
+      trap('SIGCONT', old_trap) # Restore the previuos signal handler, if there was one.
+
+      STDERR.puts 'Continuing'
     end
 
     def wait?
@@ -304,6 +340,52 @@ module Capybara::Poltergeist
 
     def go_forward
       browser.go_forward
+    end
+
+    def accept_modal(type, options = {})
+      case type
+      when :confirm
+        browser.accept_confirm
+      when :prompt
+        browser.accept_prompt options[:with]
+      end
+
+      yield if block_given?
+
+      find_modal(options)
+    end
+
+    def dismiss_modal(type, options = {})
+      case type
+      when :confirm
+        browser.dismiss_confirm
+      when :prompt
+        browser.dismiss_prompt
+      end
+
+      yield if block_given?
+      find_modal(options)
+    end
+
+    private
+
+    def find_modal(options)
+      start_time    = Time.now
+      timeout_sec   = options[:wait] || begin Capybara.default_max_wait_time rescue Capybara.default_wait_time end
+      expect_text   = options[:text]
+      not_found_msg = 'Unable to find modal dialog'
+      not_found_msg += " with #{expect_text}" if expect_text
+
+      begin
+        modal_text = browser.modal_message
+        raise Capybara::ModalNotFound if modal_text.nil?
+        raise Capybara::ModalNotFound if (expect_text && (modal_text != expect_text))
+      rescue Capybara::ModalNotFound => e
+        raise e, not_found_msg if (Time.now - start_time) >= timeout_sec
+        sleep(0.05)
+        retry
+      end
+      modal_text
     end
   end
 end

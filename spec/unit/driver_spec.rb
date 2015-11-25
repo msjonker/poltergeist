@@ -66,6 +66,32 @@ module Capybara::Poltergeist
         expect(subject.inspector).to be_a(Inspector)
         expect(subject.inspector.browser).to eq('foo')
       end
+
+      it 'can pause indefinitely' do
+        expect {
+          Timeout::timeout(3) do
+            subject.pause
+          end
+        }.to raise_error(Timeout::Error)
+      end
+
+      it 'can pause and resume with keyboard input' do
+        IO.pipe do |read_io, write_io|
+          stub_const('STDIN', read_io)
+          write_io.write "\n"
+          Timeout::timeout(3) do
+            subject.pause
+          end
+        end
+      end
+
+      it 'can pause and resume with signal' do
+        Thread.new { sleep(2); Process.kill('CONT', Process.pid); }
+        Timeout::timeout(4) do
+          subject.pause
+        end
+      end
+
     end
 
     context 'with a :timeout option' do
@@ -73,7 +99,7 @@ module Capybara::Poltergeist
 
       it 'starts the server with the provided timeout' do
         server = double
-        Server.should_receive(:new).with(anything, 3).and_return(server)
+        expect(Server).to receive(:new).with(anything, 3).and_return(server)
         expect(subject.server).to eq(server)
       end
     end
@@ -83,8 +109,8 @@ module Capybara::Poltergeist
 
       it 'creates a client with the desired width and height settings' do
         server = double
-        Server.should_receive(:new).and_return(server)
-        Client.should_receive(:start).with(server, hash_including(window_size: [800, 600]))
+        expect(Server).to receive(:new).and_return(server)
+        expect(Client).to receive(:start).with(server, hash_including(window_size: [800, 600]))
 
         subject.client
       end

@@ -1,6 +1,10 @@
 # This is injected into each page that is loaded
 
 class PoltergeistAgent
+  # Since this code executes in the sites browser space - copy needed JSON functions
+  # in case user code messes with JSON (early mootools for instance)
+  @.JSON ||= { parse: JSON.parse, stringify: JSON.stringify }
+
   constructor: ->
     @elements = []
     @nodes    = {}
@@ -13,7 +17,7 @@ class PoltergeistAgent
 
   @stringify: (object) ->
     try
-      JSON.stringify object, (key, value) ->
+      PoltergeistAgent.JSON.stringify object, (key, value) ->
         if Array.isArray(this[key])
           return this[key]
         else
@@ -103,13 +107,13 @@ class PoltergeistAgent.Node
 
   isObsolete: ->
     obsolete = (element) =>
-      if element.parentNode?
-        if element.parentNode == document
-          false
+      if (parent = element.parentNode)?
+        if parent == document
+          return false
         else
-          obsolete element.parentNode
+          obsolete parent
       else
-        true
+        return true
     obsolete @element
 
   changed: ->
@@ -120,6 +124,8 @@ class PoltergeistAgent.Node
     # from the parent SELECT
     if @element.nodeName == 'OPTION'
       element = @element.parentNode
+      element = element.parentNode if element.nodeName == 'OPTGROUP'
+      element
     else
       element = @element
 
@@ -172,9 +178,12 @@ class PoltergeistAgent.Node
     window.getSelection().addRange(range)
     window.getSelection().deleteFromDocument()
 
+  getProperty: (name) ->
+    @element[name]
+
   getAttributes: ->
     attrs = {}
-    for attr, i in @element.attributes
+    for attr in @element.attributes
       attrs[attr.name] = attr.value.replace("\n","\\n");
     attrs
 
@@ -186,6 +195,10 @@ class PoltergeistAgent.Node
 
   scrollIntoView: ->
     @element.scrollIntoViewIfNeeded()
+    #Sometimes scrollIntoViewIfNeeded doesn't seem to work, not really sure why.
+    #Just calling scrollIntoView doesnt work either, however calling scrollIntoView
+    #after scrollIntoViewIfNeeded when element is not in the viewport does appear to work
+    @element.scrollIntoView() unless this.isInViewport()
 
   value: ->
     if @element.tagName == 'SELECT' && @element.multiple
@@ -199,8 +212,8 @@ class PoltergeistAgent.Node
     if (@element.maxLength >= 0)
       value = value.substr(0, @element.maxLength)
 
-    @element.value = ''
     this.trigger('focus')
+    @element.value = ''
 
     if @element.type == 'number'
       @element.value = value
@@ -227,7 +240,9 @@ class PoltergeistAgent.Node
     @element.removeAttribute(name)
 
   select: (value) ->
-    if value == false && !@element.parentNode.multiple
+    if @isDisabled()
+      false
+    else if value == false && !@element.parentNode.multiple
       false
     else
       this.trigger('focus', @element.parentNode)
@@ -241,18 +256,34 @@ class PoltergeistAgent.Node
   tagName: ->
     @element.tagName
 
-  isVisible: (element) ->
-    element = @element unless element
+  isVisible: (element = @element) ->
+    while (element)
+      style = window.getComputedStyle(element)
+      return false if style.display == 'none' or
+                      style.visibility == 'hidden' or
+                      parseFloat(style.opacity) == 0
+      element = element.parentElement
 
-    if window.getComputedStyle(element).display == 'none'
-      false
-    else if element.parentElement
-      this.isVisible element.parentElement
-    else
-      true
+    return true
+
+  isInViewport: ->
+    rect = @element.getBoundingClientRect();
+
+    rect.top >= 0 &&
+    rect.left >= 0 &&
+    rect.bottom <= window.innerHeight &&
+    rect.right <= window.innerWidth
 
   isDisabled: ->
     @element.disabled || @element.tagName == 'OPTION' && @element.parentNode.disabled
+
+  path: ->
+    elements = @parentIds().reverse().map((id) => @agent.get(id))
+    elements.push(this)
+    selectors = elements.map (el)->
+      prev_siblings = el.find('xpath', "./preceding-sibling::#{el.tagName()}")
+      "#{el.tagName()}[#{prev_siblings.length + 1}]"
+    "//" + selectors.join('/')
 
   containsSelection: ->
     selectedNode = document.getSelection().focusNode
@@ -279,7 +310,8 @@ class PoltergeistAgent.Node
     offset
 
   position: ->
-    rect = @element.getClientRects()[0]
+    # Elements inside an SVG return underfined for getClientRects???
+    rect = @element.getClientRects()[0] || @element.getBoundingClientRect()
     throw new PoltergeistAgent.ObsoleteNode unless rect
     frameOffset = this.frameOffset()
 
@@ -330,12 +362,14 @@ class PoltergeistAgent.Node
         el = el.parentNode
 
     { status: 'failure', selector: origEl && this.getSelector(origEl) }
-
   getSelector: (el) ->
     selector = if el.tagName != 'HTML' then this.getSelector(el.parentNode) + ' ' else ''
     selector += el.tagName.toLowerCase()
     selector += "##{el.id}" if el.id
-    for className in el.classList
+
+    #PhantomJS < 2.0 doesn't support classList for SVG elements - so get classes manually
+    classes = el.classList || (el.getAttribute('class')?.trim()?.split(/\s+/)) || []
+    for className in classes when className != ''
       selector += ".#{className}"
     selector
 
@@ -387,6 +421,3 @@ document.addEventListener(
   'DOMContentLoaded',
   -> console.log('__DOMContentLoaded')
 )
-
-window.confirm = (message) -> true
-window.prompt  = (message, _default) -> _default or null

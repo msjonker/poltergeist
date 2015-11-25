@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-skip = [:modals]
+skip = []
 skip << :windows if ENV['TRAVIS']
 Capybara::SpecHelper.run_specs TestSessions::Poltergeist, 'Poltergeist', capybara_skip: skip
 
@@ -67,6 +67,15 @@ describe Capybara::Session do
         end
       end
 
+      context 'when someone messes with JSON' do
+        # mootools <= 1.2.4 replaced the native JSON with it's own JSON that didn't have stringify or parse methods
+        it 'works correctly' do
+          @session.visit('/poltergeist/index')
+          @session.execute_script('JSON = {};')
+          expect { @session.find(:link, 'JS redirect') }.not_to raise_error
+        end
+      end
+
       context 'when the element is not in the viewport' do
         before do
           @session.visit('/poltergeist/with_js')
@@ -79,7 +88,7 @@ describe Capybara::Session do
         context 'and is then brought in' do
           before do
             @session.execute_script "$('#off-the-left').animate({left: '10'});"
-            Capybara.default_wait_time = 1 #we need capybara to retry until animation finished
+            Poltergeist::SpecHelper.set_capybara_wait_time(1)
           end
 
           it 'clicks properly' do
@@ -87,7 +96,7 @@ describe Capybara::Session do
           end
 
           after do
-            Capybara.default_wait_time = 0
+            Poltergeist::SpecHelper.set_capybara_wait_time(0)
           end
         end
       end
@@ -102,28 +111,60 @@ describe Capybara::Session do
         @session.click_link 'Link outside viewport'
         expect(@session.current_path).to eq('/')
       end
+
+      it 'scrolls into view if scrollIntoViewIfNeeded fails' do
+        @session.click_link 'Below the fold'
+        expect(@session.current_path).to eq('/')
+      end
     end
 
     describe 'Node#select' do
       before do
         @session.visit('/poltergeist/with_js')
-        @session.find(:select, 'browser').find(:option, 'Safari').select_option
       end
 
-      it 'fires the focus event' do
-        expect(@session.find(:css, '#changes_on_focus').text).to eq('PhantomJS')
+      context 'when selected option is not in optgroup' do
+        before do
+          @session.find(:select, 'browser').find(:option, 'Firefox').select_option
+        end
+
+        it 'fires the focus event' do
+          expect(@session.find(:css, '#changes_on_focus').text).to eq('PhantomJS')
+        end
+
+        it 'fire the change event' do
+          expect(@session.find(:css, '#changes').text).to eq('Firefox')
+        end
+
+        it 'fires the blur event' do
+          expect(@session.find(:css, '#changes_on_blur').text).to eq('Firefox')
+        end
+
+        it 'fires the change event with the correct target' do
+          expect(@session.find(:css, '#target_on_select').text).to eq('SELECT')
+        end
       end
 
-      it 'fire the change event' do
-        expect(@session.find(:css, '#changes').text).to eq('Safari')
-      end
+      context 'when selected option is in optgroup' do
+        before do
+          @session.find(:select, 'browser').find(:option, 'Safari').select_option
+        end
 
-      it 'fires the blur event' do
-        expect(@session.find(:css, '#changes_on_blur').text).to eq('Safari')
-      end
+        it 'fires the focus event' do
+          expect(@session.find(:css, '#changes_on_focus').text).to eq('PhantomJS')
+        end
 
-      it 'fires the change event with the correct target' do
-        expect(@session.find(:css, '#target_on_select').text).to eq('SELECT')
+        it 'fire the change event' do
+          expect(@session.find(:css, '#changes').text).to eq('Safari')
+        end
+
+        it 'fires the blur event' do
+          expect(@session.find(:css, '#changes_on_blur').text).to eq('Safari')
+        end
+
+        it 'fires the change event with the correct target' do
+          expect(@session.find(:css, '#target_on_select').text).to eq('SELECT')
+        end
       end
     end
 
@@ -203,6 +244,60 @@ describe Capybara::Session do
       end
     end
 
+    describe 'Node#visible' do
+      before do
+        @session.visit('/poltergeist/visible')
+      end
+
+      it 'considers display: none to not be visible' do
+        expect(@session.find(:css, 'li', text: 'Display None', visible: false).visible?).to be false
+      end
+
+      it 'considers visibility: hidden to not be visible' do
+        expect(@session.find(:css, 'li', text: 'Hidden', visible: false).visible?).to be false
+      end
+
+      it 'considers opacity: 0 to not be visible' do
+        expect(@session.find(:css, 'li', text: 'Transparent', visible: false).visible?).to be false
+      end
+    end
+
+    describe 'Node#checked?' do
+      before do
+        @session.visit '/poltergeist/attributes_properties'
+      end
+
+      it 'is a boolean' do
+        expect(@session.find_field('checked').checked?).to be true
+        expect(@session.find_field('unchecked').checked?).to be false
+      end
+    end
+
+    describe 'Node#[]' do
+      before do
+        @session.visit '/poltergeist/attributes_properties'
+      end
+
+      it 'gets normalized href' do
+        expect(@session.find(:link, 'Loop')['href']).to eq("http://#{@session.server.host}:#{@session.server.port}/poltergeist/attributes_properties")
+      end
+
+      it 'gets innerHTML' do
+        expect(@session.find(:css,'.some_other_class')['innerHTML']).to eq '<p>foobar</p>'
+      end
+
+      it 'gets attribute' do
+        link = @session.find(:link, 'Loop')
+        expect(link['data-random']).to eq '42'
+        expect(link['onclick']).to eq "return false;"
+      end
+
+      it 'gets boolean attributes as booleans' do
+        expect(@session.find_field('checked')['checked']).to be true
+        expect(@session.find_field('unchecked')['checked']).to be false
+      end
+    end
+
     it 'has no trouble clicking elements when the size of a document changes' do
       @session.visit('/poltergeist/long_page')
       @session.find(:css, '#penultimate').click
@@ -228,20 +323,25 @@ describe Capybara::Session do
 
     it 'handles window.confirm(), returning true unconditionally' do
       @session.visit '/'
-      expect(@session.evaluate_script("window.confirm('foo')")).to be_true
+      expect(@session.evaluate_script("window.confirm('foo')")).to be true
     end
 
     it 'handles window.prompt(), returning the default value or null' do
       @session.visit '/'
-      expect(@session.evaluate_script('window.prompt()')).to be_nil
+      # Disabling because I'm not sure this is really valid
+      # expect(@session.evaluate_script('window.prompt()')).to be_nil
       expect(@session.evaluate_script("window.prompt('foo', 'default')")).to eq('default')
     end
 
     it 'handles evaluate_script values properly' do
       expect(@session.evaluate_script('null')).to be_nil
-      expect(@session.evaluate_script('false')).to be_false
-      expect(@session.evaluate_script('true')).to be_true
+      expect(@session.evaluate_script('false')).to be false
+      expect(@session.evaluate_script('true')).to be true
       expect(@session.evaluate_script("{foo: 'bar'}")).to eq({'foo' => 'bar'})
+    end
+
+    it 'can evaluate a statement ending with a semicolon' do
+      expect(@session.evaluate_script('3;')).to eq(3)
     end
 
     it 'synchronises page loads properly' do
@@ -278,6 +378,10 @@ describe Capybara::Session do
         @session.click_link 'some link'
       end
 
+      it 'can click an element inside an svg' do
+        expect { @session.find(:css, '#myrect').click }.not_to raise_error
+      end
+
       context 'with #two overlapping #one' do
         before do
           @session.execute_script <<-JS
@@ -291,39 +395,53 @@ describe Capybara::Session do
         it 'detects if an element is obscured when clicking' do
           expect {
             @session.find(:css, '#one').click
-          }.to raise_error(Capybara::Poltergeist::MouseEventFailed)
-
-          begin
-            @session.find(:css, '#one').click
-          rescue => error
+          }.to raise_error(Capybara::Poltergeist::MouseEventFailed) { |error|
             expect(error.selector).to eq('html body div#two.box')
             expect(error.message).to include('[200, 200]')
-          end
+          }
         end
 
         it 'clicks in the centre of an element' do
-          begin
+          expect {
             @session.find(:css, '#one').click
-          rescue => error
+          }.to raise_error(Capybara::Poltergeist::MouseEventFailed) { |error|
             expect(error.position).to eq([200, 200])
-          end
+          }
         end
 
         it 'clicks in the centre of an element within the viewport, if part is outside the viewport' do
           @session.driver.resize(200, 200)
 
-          begin
+          expect {
             @session.find(:css, '#one').click
-          rescue => error
+          }.to raise_error(Capybara::Poltergeist::MouseEventFailed) { |error|
             expect(error.position.first).to eq(150)
-          end
+          }
         end
       end
 
-      it 'can evaluate a statement ending with a semicolon' do
-        expect(@session.evaluate_script('3;')).to eq(3)
+      context 'with #svg overlapping #one' do
+        before do
+          @session.execute_script <<-JS
+            var two = document.getElementById('svg')
+            two.style.position = 'absolute'
+            two.style.left     = '0px'
+            two.style.top      = '0px'
+          JS
+        end
+
+        it 'detects if an element is obscured when clicking' do
+          expect {
+            @session.find(:css, '#one').click
+          }.to raise_error(Capybara::Poltergeist::MouseEventFailed) { |error|
+            expect(error.selector).to eq('html body svg#svg.box')
+            expect(error.message).to include('[200, 200]')
+          }
+        end
       end
     end
+
+
 
     context 'double click tests' do
       before do
@@ -402,11 +520,6 @@ describe Capybara::Session do
         expect(request_uri).to eq('/poltergeist/arbitrary_path/200/foo?a%5Bb%5D=c')
       end
 
-      it 'supports allowed characters' do
-        @session.visit '/poltergeist/arbitrary_path/200/foo?a[b]=c'
-        expect(request_uri).to eq('/poltergeist/arbitrary_path/200/foo?a%5Bb%5D=c')
-      end
-
       it 'supports url in parameter' do
         @session.visit "/poltergeist/arbitrary_path/200/foo%20asd?a=http://example.com/asd%20asd"
         expect(request_uri).to eq('/poltergeist/arbitrary_path/200/foo%20asd?a=http://example.com/asd%20asd')
@@ -437,13 +550,13 @@ describe Capybara::Session do
         top_before = @session.evaluate_script('$("#drag_by .draggable").position().top')
         left_before = @session.evaluate_script('$("#drag_by .draggable").position().left')
 
-        draggable.native.drag_by(10, 10)
+        draggable.native.drag_by(15, 15)
 
         top_after = @session.evaluate_script('$("#drag_by .draggable").position().top')
         left_after = @session.evaluate_script('$("#drag_by .draggable").position().left')
 
-        expect( top_after ).to eq( top_before + 10 )
-        expect( left_after ).to eq( left_before + 10 )
+        expect( top_after ).to eq( top_before + 15 )
+        expect( left_after ).to eq( left_before + 15 )
       end
 
     end
@@ -501,10 +614,28 @@ describe Capybara::Session do
 
       it 'supports selection by element' do
         @session.visit '/poltergeist/frames'
-        frame = @session.find(:css, 'iframe')
+        frame = @session.find(:css, 'iframe[name]')
 
         @session.within_frame(frame) do
           expect(@session.current_path).to eq('/poltergeist/slow')
+        end
+      end
+
+      it 'supports selection by element without name or id' do
+        @session.visit '/poltergeist/frames'
+        frame = @session.find(:css, 'iframe:not([name]):not([id])')
+
+        @session.within_frame(frame) do
+          expect(@session.current_path).to eq('/poltergeist/headers')
+        end
+      end
+
+      it 'supports selection by element with id but no name' do
+        @session.visit '/poltergeist/frames'
+        frame = @session.find(:css, 'iframe[id]:not([name])')
+
+        @session.within_frame(frame) do
+          expect(@session.current_path).to eq('/poltergeist/get_cookie')
         end
       end
 
@@ -646,8 +777,22 @@ describe Capybara::Session do
       end
     end
 
+    context 'supports accessing element properties' do
+      before do
+        @session.visit '/poltergeist/attributes_properties'
+      end
+
+      it 'gets property innerHTML' do
+        expect(@session.find(:css,'.some_other_class').native.property('innerHTML')).to eq '<p>foobar</p>'
+      end
+
+      it 'gets property outerHTML' do
+        expect(@session.find(:css,'.some_other_class').native.property('outerHTML')).to eq '<div class="some_other_class"><p>foobar</p></div>'
+      end
+    end
+
     it 'allows access to element attributes' do
-      @session.visit '/poltergeist/attributes'
+      @session.visit '/poltergeist/attributes_properties'
       expect(@session.find(:css,'#my_link').native.attributes).to eq(
         'href' => '#', 'id' => 'my_link', 'class' => 'some_class', 'data' => 'rah!'
       )
@@ -668,5 +813,23 @@ describe Capybara::Session do
         expect(@session.find(:css, 'tspan').text).to eq 'svg foo'
       end
     end
+
+    context 'modals' do
+      before do
+        @session.visit '/poltergeist/with_js'
+      end
+
+      it 'works with nested modals' do
+        expect {
+          @session.dismiss_confirm 'Are you really sure?' do
+            @session.accept_confirm 'Are you sure?' do
+              @session.click_link('Open check twice')
+            end
+          end
+        }.not_to raise_error
+        expect(@session).to have_xpath("//a[@id='open-twice' and @confirmed='false']")
+      end
+    end
+
   end
 end

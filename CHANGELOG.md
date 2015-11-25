@@ -1,17 +1,61 @@
 ### Next release ###
 
 #### Features ####
+#### Bug fixes ####
+
+### 1.8.1 ###
+
+#### Bug fixes ####
+*   Fix display of exception cause information in RSpec 3.4 (Thomas Walpole) [Issue #702]
+*   Fix clicking on elements inside an SVG element (Thomas Walpole) [Issue #331]
+*   Error information is returned with network traffic (Thomas Walpole)
+
+### 1.8.0 ###
+
+#### Features ####
+*   Implement support for Capybara Window#size and Window#resize_to (Thomas Walpole)
+*   Add access to properties of node's native element (Mike Souza)
+*   Node#[] now prefers element properties over attributes when the property exists and is
+    not an object.  This is similar to the selenium driver behavior. (Thomas Walpole)
+
+#### Bug fixes ####
+
+*   Fix event.target for change events on SELECT elements with OPTGROUP. (Jonathan Tron)
+*   Trigger focus before clearing element in #set. (Soutaro Matsumoto) [Issue #666]
+*   Link command and response together with an id. (Thomas Walpole) [Issue #653, #482]
+*   Consider css visibility and opacity in #visible. (Thomas Walpole) [Issue #618]
+*   Enable changing to frames that have no name or id attributes. (Thomas Walpole) [Issue #630, #559]
+*   Fix domain setting of cookies when Capybara.app_host is set. (John Paul Ashenfelter, Thomas Walpole) [Issue #593]
+*   Fix click checking when svg element is overlapping (Thomas Walpole) [Issue #616]
+*   Fix null status code when some pages redirect (Thomas Walpole) [Issue #524]
+*   Fix cases where page isn't always scrolled when needed for a mouse click (Thomas Walpole) [Issue #520]
+*   Add scheme to URL passed to browser by inspector to support the "open"
+    command (Nuru) [Issue #579]
+*   Support resuming from debug pause by sending a signal (Nuru) [Issue #654]
+
+
+### 1.7.0 ###
+
+#### Features ####
 *   Persist browser state on Ruby side (Brian Ledbetter) [Issue #564]
 *   Add support for key modifiers for send_keys (Sarah Mogin) [Issue #420]
 *   Drag by offset support in native element (phoenixek12)
 *   Fire focus related events on selecting a select box option
     (Rumen Paletov) [Issue #607]
+*   Added ability to manipulate modals (`window.alert()`, `window.confirm()`
+    and `window.prompt()`) that has been implemented from Capybara 2.4
+    (Wataru MIYAGUNI and Thomas Walpole)
+*   Don't select disabled options (Thomas Walpole)
+*   Support lowercase key symbols as expected by Capybara (Thomas Walpole)
+*   Modifier keys should generate up/down events (Thomas Walpole)
+*   Add Node#path support for Capybara 2.5 (Thomas Walpole)
+*   Make modal support work with multiple/nested modals (Thomas Walpole)
 
 #### Bug fixes ####
 *   Support reading text from SVG elements (Oliver Searle-Barnes)
 *   Whitespace character in `current_url` remained unencoded [Issue #418]
-
-*   Fix event.target for change events on SELECT elements. (Jonathan Baudanza) [Issue #204]
+*   Fix event.target for change events on SELECT elements.
+    (Jonathan Baudanza) [Issue #204]
 
 ### 1.6.0 ###
 

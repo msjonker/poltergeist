@@ -1,4 +1,5 @@
 require "capybara/poltergeist/errors"
+require "capybara/poltergeist/command"
 require 'multi_json'
 require 'time'
 
@@ -78,6 +79,10 @@ module Capybara::Poltergeist
       command 'delete_text', page_id, id
     end
 
+    def property(page_id, id, name)
+      command 'property', page_id, id, name.to_s
+    end
+
     def attributes(page_id, id)
       command 'attributes', page_id, id
     end
@@ -124,7 +129,7 @@ module Capybara::Poltergeist
 
     def within_frame(handle, &block)
       if handle.is_a?(Capybara::Node::Base)
-        command 'push_frame', handle[:name] || handle[:id]
+        command 'push_frame', [handle.native.page_id, handle.native.id]
       else
         command 'push_frame', handle
       end
@@ -154,11 +159,17 @@ module Capybara::Poltergeist
       command 'close_window', handle
     end
 
-    def within_window(name, &block)
+    def find_window_handle(locator)
+      return locator if window_handles.include? locator
+
+      handle = command 'window_handle', locator
+      raise noSuchWindowError unless handle
+      return handle
+    end
+
+    def within_window(locator, &block)
       original = window_handle
-      handle = command 'window_handle', name
-      handle = name if handle.nil? && window_handles.include?(name)
-      raise NoSuchWindowError unless handle
+      handle = find_window_handle(locator)
       switch_to_window(handle)
       yield
     ensure
@@ -231,11 +242,16 @@ module Capybara::Poltergeist
       command 'send_keys', page_id, id, normalize_keys(keys)
     end
 
+    def path(page_id, id)
+      command 'path', page_id, id
+    end
+
     def network_traffic
       command('network_traffic').values.map do |event|
         NetworkTraffic::Request.new(
           event['request'],
-          event['responseParts'].map { |response| NetworkTraffic::Response.new(response) }
+          event['responseParts'].map { |response| NetworkTraffic::Response.new(response) },
+          event['error'] ? NetworkTraffic::Error.new(event['error']) : nil
         )
       end
     end
@@ -318,10 +334,10 @@ module Capybara::Poltergeist
     end
 
     def command(name, *args)
-      message = JSON.dump({ 'name' => name, 'args' => args })
-      log message
+      cmd = Command.new(name, *args)
+      log cmd.message
 
-      response = server.send(message)
+      response = server.send(cmd)
       log response
 
       json = JSON.load(response)
@@ -345,6 +361,32 @@ module Capybara::Poltergeist
       command 'go_forward'
     end
 
+    def accept_confirm
+      command 'set_confirm_process', true
+    end
+
+    def dismiss_confirm
+      command 'set_confirm_process', false
+    end
+
+    #
+    # press "OK" with text (response) or default value
+    #
+    def accept_prompt(response)
+      command 'set_prompt_response', response || false
+    end
+
+    #
+    # press "Cancel"
+    #
+    def dismiss_prompt
+      command 'set_prompt_response', nil
+    end
+
+    def modal_message
+      command 'modal_message'
+    end
+
     private
 
     def log(message)
@@ -362,15 +404,15 @@ module Capybara::Poltergeist
       keys.map do |key|
         case key
         when Array
-          # [:Shift, "s"] => { modifier: "shift", key: "S" }   
+          # [:Shift, "s"] => { modifier: "shift", key: "S" }
           # [:Ctrl, :Left] => { modifier: "ctrl", key: :Left }
           # [:Ctrl, :Shift, :Left] => { modifier: "ctrl,shift", key: :Left }
           letter = key.pop
           symbol = key.map { |k| k.to_s.downcase }.join(',')
-          
+
           { modifier: symbol.to_s.downcase, key: letter.capitalize }
         when Symbol
-          { key: key } # Return a known sequence for PhantomJS
+          { key: key.capitalize } # Return a known sequence for PhantomJS
         when String
           key # Plain string, nothing to do
         end

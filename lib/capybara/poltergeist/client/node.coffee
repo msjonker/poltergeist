@@ -3,8 +3,9 @@
 class Poltergeist.Node
   @DELEGATES = ['allText', 'visibleText', 'getAttribute', 'value', 'set', 'setAttribute', 'isObsolete',
                 'removeAttribute', 'isMultiple', 'select', 'tagName', 'find', 'getAttributes',
-                'isVisible', 'position', 'trigger', 'parentId', 'parentIds', 'mouseEventTest',
-                'scrollIntoView', 'isDOMEqual', 'isDisabled', 'deleteText', 'containsSelection']
+                'isVisible', 'isInViewport', 'position', 'trigger', 'parentId', 'parentIds', 'mouseEventTest',
+                'scrollIntoView', 'isDOMEqual', 'isDisabled', 'deleteText', 'containsSelection',
+                'path', 'getProperty']
 
   constructor: (@page, @id) ->
 
@@ -30,10 +31,8 @@ class Poltergeist.Node
 
   mouseEvent: (name) ->
     this.scrollIntoView()
-
-    pos  = this.mouseEventPosition()
+    pos = this.mouseEventPosition()
     test = this.mouseEventTest(pos.x, pos.y)
-
     if test.status == 'success'
       if name == 'rightclick'
         @page.mouseEvent('click', pos.x, pos.y, 'right')
@@ -58,8 +57,14 @@ class Poltergeist.Node
 
     position      = this.mouseEventPosition()
 
-    @page.mouseEvent('mousedown', position.x,      position.y)
-    @page.mouseEvent('mouseup',   position.x + x - 5,  position.y + y - 5)
+    final_pos =
+      x: position.x + x
+      y: position.y + y
+
+    @page.mouseEvent('mousedown', position.x, position.y)
+    @page.mouseEvent('mouseup', final_pos.x, final_pos.y)
+
 
   isEqual: (other) ->
     @page == other.page && this.isDOMEqual(other.id)
+
